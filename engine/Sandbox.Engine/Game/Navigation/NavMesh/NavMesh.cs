@@ -275,7 +275,7 @@ public sealed partial class NavMesh : IDisposable
 
 			await LoadFromBake();
 
-			if ( !CustomBounds && Bounds == default ) Bounds = CalculateWorldBounds( world );
+			if ( !CustomBounds ) Bounds = CalculateWorldBounds( world );
 
 			await GenerateTiles( world, Bounds );
 		}
@@ -305,7 +305,7 @@ public sealed partial class NavMesh : IDisposable
 
 			Init();
 
-			if ( !CustomBounds && Bounds == default ) Bounds = CalculateWorldBounds( world );
+			if ( !CustomBounds ) Bounds = CalculateWorldBounds( world );
 
 			await GenerateTiles( world, Bounds );
 		}

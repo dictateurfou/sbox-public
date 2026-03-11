@@ -33,7 +33,7 @@ public sealed partial class NavMesh
 		jso["ExcludedBodies"] = Json.ToNode( ExcludedBodies, typeof( TagSet ) );
 		jso["IncludedBodies"] = Json.ToNode( IncludedBodies, typeof( TagSet ) );
 		jso["CustomBounds"] = CustomBounds;
-		jso["Bounds"] = Json.ToNode( Bounds, typeof( BBox ) );
+		if ( CustomBounds ) jso["Bounds"] = Json.ToNode( Bounds, typeof( BBox ) );
 
 		// Store reference to the baked data file as a RawFileReference
 		if ( !string.IsNullOrWhiteSpace( _bakedDataPath ) )
@@ -64,7 +64,7 @@ public sealed partial class NavMesh
 		ExcludedBodies = Json.FromNode<TagSet>( jso["ExcludedBodies"] ) ?? ExcludedBodies;
 		IncludedBodies = Json.FromNode<TagSet>( jso["IncludedBodies"] ) ?? IncludedBodies;
 		CustomBounds = (bool)(jso["CustomBounds"] ?? CustomBounds);
-		if ( jso["Bounds"] is not null ) Bounds = Json.FromNode<BBox>( jso["Bounds"] );
+		Bounds = CustomBounds && jso["Bounds"] is not null ? Json.FromNode<BBox>( jso["Bounds"] ) : default;
 
 		// Load baked data path from RawFileReference
 		if ( jso["BakedDataPath"] is JsonObject bakedDataObj )
