@@ -256,6 +256,11 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 			_transformDirty = false;
 
 			UpdateGameObjectsFromBones();
+
+			// Immediately apply bone merges for any children that had already
+			// registered with us before our SceneModel was created (e.g. when
+			// children are enabled before this component).
+			MergeDescendants();
 		}
 	}
 
@@ -263,6 +268,10 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 	{
 		try
 		{
+			// Unregister from the merge target so we don't leave stale references
+			// in its mergeChildren set (which would cause a memory leak on destroy).
+			_boneMergeTarget?.SetBoneMerge( this, false );
+
 			ClearBoneProxies();
 		}
 		finally
