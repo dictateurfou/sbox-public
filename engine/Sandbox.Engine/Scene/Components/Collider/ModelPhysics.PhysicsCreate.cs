@@ -6,6 +6,12 @@ public sealed partial class ModelPhysics
 	/// <summary>
 	/// Create all the bodies, colliders and joints.
 	/// </summary>
+	/// <remarks>
+	/// This method is intentionally a no-op on proxy clients (<see cref="Component.IsProxy"/> = <c>true</c>).
+	/// Proxies never simulate physics locally; they only visualize the transforms that the authority
+	/// networks via <c>BodyTransforms</c>.  All Rigidbody and collider GameObjects are therefore
+	/// only created on the authority side.
+	/// </remarks>
 	private void CreatePhysics()
 	{
 		if ( !Active ) return;
