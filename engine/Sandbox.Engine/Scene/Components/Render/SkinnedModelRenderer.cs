@@ -4,6 +4,37 @@ namespace Sandbox;
 /// <summary>
 /// Renders a skinned model in the world. A skinned model is any model with bones/animations.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Bone Proxies</b><br/>
+/// When <see cref="CreateBoneObjects"/> is enabled, a child <see cref="GameObject"/> is created for
+/// every bone in the skeleton, forming a hierarchy that mirrors the model's bone tree. These
+/// GameObjects are flagged with <see cref="GameObjectFlags.Bone"/> and their transforms are kept in
+/// sync with the running animation each frame via <c>UpdateGameObjectsFromBones</c>. You can attach
+/// child objects (e.g. weapons, accessories) to a bone proxy so they automatically follow the
+/// animation. A bone can also be flagged as <see cref="GameObjectFlags.ProceduralBone"/> to let you
+/// drive its transform manually instead of having the animation overwrite it.
+/// </para>
+/// <para>
+/// <b>Bone Merging (<see cref="BoneMergeTarget"/>)</b><br/>
+/// Setting <see cref="BoneMergeTarget"/> on this renderer causes its skeleton to be driven entirely
+/// by the target renderer's animation. Every frame the target calls
+/// <c>SceneModel.MergeBones</c> on this renderer's scene model, copying over all bone transforms
+/// from the target, so the two models animate in perfect synchrony. This is the mechanism used by
+/// the clothing / avatar system where multiple clothing pieces need to deform along with the base
+/// character body.
+/// </para>
+/// <para>
+/// <b>Bone Proxies + Bone Merging</b><br/>
+/// The two features compose naturally. When a renderer has both <see cref="CreateBoneObjects"/>
+/// enabled <i>and</i> a <see cref="BoneMergeTarget"/> set, its bone proxy GameObjects will be
+/// updated to reflect the <em>target's</em> bone transforms (not its own independent animation).
+/// The root bone proxies receive an additional offset (<c>mergeOffset</c>) so they stay positioned
+/// relative to the root of the merge chain (<see cref="RootBoneMergeTarget"/>) rather than being
+/// placed at the world origin. Non-root bones are left in parent-space and therefore automatically
+/// stay under the correct parent bone proxy without any extra offset.
+/// </para>
+/// </remarks>
 [Title( "Model Renderer (skinned)" )]
 [Category( "Rendering" )]
 [Icon( "sports_martial_arts" )]
@@ -12,6 +43,13 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 {
 	bool _createBones = false;
 
+	/// <summary>
+	/// When enabled, creates a child <see cref="GameObject"/> for every bone in the model's
+	/// skeleton. Each proxy is kept in sync with the running animation (or the
+	/// <see cref="BoneMergeTarget"/>'s animation) every frame. Attach child objects to a bone
+	/// proxy to make them follow the animation automatically. Mark a proxy with
+	/// <see cref="GameObjectFlags.ProceduralBone"/> to drive its transform manually.
+	/// </summary>
 	[Property, Group( "Bones", StartFolded = true )]
 	public bool CreateBoneObjects
 	{
@@ -27,6 +65,19 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 
 	SkinnedModelRenderer _boneMergeTarget;
 
+	/// <summary>
+	/// When set, this renderer's skeleton is driven by the target renderer's animation instead
+	/// of its own. Every frame the target copies its bone transforms into this renderer so the
+	/// two models deform identically. If <see cref="CreateBoneObjects"/> is also enabled, this
+	/// renderer's bone proxy <see cref="GameObject"/>s will follow the target's bones rather than
+	/// an independent animation. The merge is applied immediately on assignment to avoid a
+	/// one-frame flicker at the default bind pose.
+	/// </summary>
+	/// <remarks>
+	/// A renderer cannot be its own target. Changes propagate through chains: if A → B and
+	/// B → C, then C drives both B and A via <see cref="MergeDescendants"/> called from the
+	/// root of the chain. The ultimate root is returned by <see cref="RootBoneMergeTarget"/>.
+	/// </remarks>
 	[Property, Group( "Bones" )]
 	public SkinnedModelRenderer BoneMergeTarget
 	{
@@ -138,6 +189,28 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 		return Model.IsValid() && Model.Physics is { Parts.Count: > 0, Joints.Count: > 0 };
 	}
 
+	/// <summary>
+	/// Registers or unregisters <paramref name="newChild"/> as a bone-merge child of this
+	/// renderer. Called by the child when its <see cref="BoneMergeTarget"/> property is set.
+	/// </summary>
+	/// <remarks>
+	/// When <paramref name="enabled"/> is <see langword="true"/> the child is added to
+	/// <c>mergeChildren</c> and, if both scene models already exist, a full synchronisation is
+	/// performed immediately:
+	/// <list type="number">
+	///   <item>The child's scene-model world transform is snapped to ours.</item>
+	///   <item><c>SceneModel.MergeBones</c> copies every bone transform from our scene model
+	///   into the child's, so the child is already in the correct pose before the first rendered
+	///   frame.</item>
+	///   <item><c>UpdateGameObjectsFromBones</c> propagates those bone transforms into the
+	///   child's bone proxy <see cref="GameObject"/>s (when
+	///   <see cref="CreateBoneObjects"/> is enabled on the child).</item>
+	///   <item>Bone physics is (re-)created on the child if the child's model has physics
+	///   bodies and joints.</item>
+	/// </list>
+	/// When <paramref name="enabled"/> is <see langword="false"/> the child is removed and its
+	/// physics destroyed; it will revert to animating independently on the next frame.
+	/// </remarks>
 	private void SetBoneMerge( SkinnedModelRenderer newChild, bool enabled )
 	{
 		ArgumentNullException.ThrowIfNull( newChild );
@@ -275,6 +348,14 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 		Physics?.Destroy();
 	}
 
+	/// <summary>
+	/// Called by the scene system after animation has been evaluated for this frame. Dispatches
+	/// pending animation events and, when this renderer is the <em>root</em> of a bone-merge
+	/// chain (i.e. its own <see cref="BoneMergeTarget"/> is <see langword="null"/>), propagates
+	/// the merged bone transforms down to all registered children via
+	/// <see cref="MergeDescendants"/>. Renderers that are already bone-merged skip this call
+	/// because their root target handles the update for the whole chain.
+	/// </summary>
 	public void PostAnimationUpdate()
 	{
 		ThreadSafe.AssertIsMainThread();
@@ -314,6 +395,18 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 		return SceneModel.IsValid() && SceneModel.HasBoneOverrides();
 	}
 
+	/// <summary>
+	/// Advances this renderer's animation by <c>Time.Delta</c> and writes the resulting bone
+	/// transforms back into the underlying scene model. When this renderer has a
+	/// <see cref="BoneMergeTarget"/>, updating the bone proxy GameObjects is skipped here
+	/// because the target (the root of the merge chain) will push the merged transforms to all
+	/// children during <see cref="PostAnimationUpdate"/>.
+	/// </summary>
+	/// <returns>
+	/// <see langword="true"/> if any bone proxy <see cref="GameObject"/> transform changed
+	/// and <see cref="BoneMergeTarget"/> is <see langword="null"/>; otherwise
+	/// <see langword="false"/>.
+	/// </returns>
 	internal bool AnimationUpdate()
 	{
 		if ( !SceneModel.IsValid() )
@@ -405,12 +498,34 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 		}
 	}
 
+	/// <summary>
+	/// Walks the <see cref="BoneMergeTarget"/> chain upward and returns the renderer at the top
+	/// — i.e. the one whose animation drives the entire chain. When this renderer has no target
+	/// it returns itself.
+	/// </summary>
 	private SkinnedModelRenderer RootBoneMergeTarget => BoneMergeTarget.IsValid() ? BoneMergeTarget.RootBoneMergeTarget : this;
 
 	/// <summary>
-	/// For non procedural bones, copy the "parent space" bone from to the GameObject transform. Will
-	/// return true if any transforms have changed.
+	/// Copies the current bone and attachment transforms from the underlying scene model into
+	/// each bone proxy and attachment proxy <see cref="GameObject"/>. Should be called after
+	/// any operation that updates the scene model's bones (animation tick, bone-merge, or
+	/// transform change). Returns <see langword="true"/> if at least one proxy transform
+	/// changed.
 	/// </summary>
+	/// <remarks>
+	/// <b>Merge offset for root bones</b><br/>
+	/// When this renderer is bone-merged, the scene model's bone transforms are in the
+	/// coordinate space of the <see cref="RootBoneMergeTarget"/>. Root bones (those without a
+	/// parent) are therefore offset by the local transform from this renderer's
+	/// <see cref="GameObject"/> to the root-target's <see cref="GameObject"/> so they end up
+	/// positioned correctly relative to their proxy parent. Non-root bones are already in
+	/// parent-bone space and need no extra offset.
+	/// <br/><br/>
+	/// <b>Skipped proxies</b><br/>
+	/// Bones flagged <see cref="GameObjectFlags.ProceduralBone"/> are skipped because their
+	/// transform is written by user code and must not be overwritten by animation. Bones flagged
+	/// <see cref="GameObjectFlags.Absolute"/> (physics-driven bones) are also skipped.
+	/// </remarks>
 	bool UpdateGameObjectsFromBones()
 	{
 		bool transformsChanged = false;
@@ -461,6 +576,11 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 		return transformsChanged;
 	}
 
+	/// <summary>
+	/// Enumerates all renderers in the bone-merge tree rooted at this renderer, in depth-first
+	/// order. Each renderer returned has its <see cref="BoneMergeTarget"/> pointing (directly or
+	/// transitively) back to this renderer.
+	/// </summary>
 	private IEnumerable<SkinnedModelRenderer> GetMergeDescendants()
 	{
 		foreach ( var child in mergeChildren )
@@ -477,6 +597,21 @@ public sealed partial class SkinnedModelRenderer : ModelRenderer, Component.Exec
 		}
 	}
 
+	/// <summary>
+	/// Iterates every renderer in the merge tree rooted at this renderer and synchronises each
+	/// one with its <see cref="BoneMergeTarget"/>:
+	/// <list type="number">
+	///   <item>Snaps the descendant's scene-model world transform to the target's.</item>
+	///   <item>Calls <c>SceneModel.MergeBones</c> to copy all bone transforms from the target
+	///   into the descendant's scene model.</item>
+	///   <item>Calls <c>UpdateGameObjectsFromBones</c> to push those bone transforms into the
+	///   descendant's bone proxy <see cref="GameObject"/>s (if
+	///   <see cref="CreateBoneObjects"/> is enabled on the descendant).</item>
+	/// </list>
+	/// This method is called once per frame from <see cref="PostAnimationUpdate"/> (or
+	/// <see cref="FinishUpdate"/> when only a transform change occurred) on the root renderer of
+	/// the merge chain.
+	/// </summary>
 	private void MergeDescendants()
 	{
 		if ( mergeChildren.Count == 0 )

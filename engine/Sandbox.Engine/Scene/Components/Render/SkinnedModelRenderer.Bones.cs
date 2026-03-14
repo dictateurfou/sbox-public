@@ -5,10 +5,11 @@ public sealed partial class SkinnedModelRenderer
 	readonly Dictionary<BoneCollection.Bone, GameObject> boneToGameObject = new();
 
 	/// <summary>
-	/// Get the GameObject of a specific bone.
+	/// Get the <see cref="GameObject"/> proxy for a specific bone by index.
+	/// Returns <see langword="null"/> when <see cref="CreateBoneObjects"/> is not enabled, or
+	/// when the index is out of range. When <see cref="BoneMergeTarget"/> is set, the proxy
+	/// transform is driven by the target's animation rather than this renderer's own animation.
 	/// </summary>
-	/// <param name="index"></param>
-	/// <returns></returns>
 	public GameObject GetBoneObject( int index )
 	{
 		if ( Model is null )
@@ -28,7 +29,10 @@ public sealed partial class SkinnedModelRenderer
 	}
 
 	/// <summary>
-	/// Find a bone's GameObject by bone name. 
+	/// Find a bone's proxy <see cref="GameObject"/> by bone name.
+	/// Returns <see langword="null"/> when <see cref="CreateBoneObjects"/> is not enabled or
+	/// the name is not found. When <see cref="BoneMergeTarget"/> is set, the proxy transform is
+	/// driven by the target's animation.
 	/// </summary>
 	public GameObject GetBoneObject( string boneName )
 	{
@@ -50,6 +54,15 @@ public sealed partial class SkinnedModelRenderer
 		return null;
 	}
 
+	/// <summary>
+	/// (Re-)creates the bone proxy <see cref="GameObject"/> hierarchy for this renderer.
+	/// Existing proxies are cleared first. When <see cref="CreateBoneObjects"/> is
+	/// <see langword="false"/> or the model is <see langword="null"/> the method returns without
+	/// creating anything. After construction the proxy transforms are populated during the next
+	/// <c>UpdateGameObjectsFromBones</c> call, which occurs either during the normal animation
+	/// tick or immediately via <c>SetBoneMerge</c> when a <see cref="BoneMergeTarget"/> is
+	/// assigned.
+	/// </summary>
 	void BuildBoneHierarchy()
 	{
 		ClearBoneProxies();
@@ -70,6 +83,11 @@ public sealed partial class SkinnedModelRenderer
 		}
 	}
 
+	/// <summary>
+	/// Removes the <see cref="GameObjectFlags.Bone"/> flag from every proxy
+	/// <see cref="GameObject"/> and clears the internal bone-to-proxy mapping. Called when the
+	/// renderer is disabled or the model is changed.
+	/// </summary>
 	void ClearBoneProxies()
 	{
 		if ( boneToGameObject.Count == 0 )
