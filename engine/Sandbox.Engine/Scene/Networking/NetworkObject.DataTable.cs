@@ -44,8 +44,9 @@ internal sealed partial class NetworkObject
 			}
 		}
 
-		foreach ( var child in go.Children.Where( child => child.NetworkMode == NetworkMode.Snapshot ) )
+		foreach ( var child in go.Children )
 		{
+			if ( child.NetworkMode != NetworkMode.Snapshot ) continue;
 			// Conna: pass false here so that we don't add properties from child GameObjects. We only
 			// want to add properties from components on child GameObjects. This is because we don't
 			// want to add potentially hundreds of entries for OwnerTransfer, etc.
