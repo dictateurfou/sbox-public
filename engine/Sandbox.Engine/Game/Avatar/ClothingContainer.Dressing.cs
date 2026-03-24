@@ -145,7 +145,7 @@ public partial class ClothingContainer
 
 		bool isHuman = DetermineHuman( body );
 
-		// remove out outfit
+		// remove our outfit
 		Reset( body );
 		Normalize();
 
