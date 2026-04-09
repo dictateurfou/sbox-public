@@ -3,6 +3,25 @@
 /// <summary>
 /// Physics for a model. This is primarily used for ragdolls and other physics driven models, otherwise you should be using a Rigidbody.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Bone Proxy System</b><br/>
+/// ModelPhysics uses a bone proxy pattern to synchronize physics-driven skeletons across the network.
+/// </para>
+/// <para>
+/// <b>Authority (IsProxy = false)</b> — the side that owns the simulation:<br/>
+/// • Creates a <see cref="Rigidbody"/> and collider(s) for every bone part defined in the model's physics asset (<see cref="CreatePhysics"/>).<br/>
+/// • After each physics step, serializes every body's world transform into the synced <c>BodyTransforms</c> table (<c>SetBodyTransforms</c>).<br/>
+/// • On <see cref="OnUpdate"/>, applies those simulated transforms back to the <see cref="SkinnedModelRenderer"/> via bone overrides (<c>PositionRendererBonesFromPhysics</c>).
+/// </para>
+/// <para>
+/// <b>Proxy (IsProxy = true)</b> — every other client that displays the result:<br/>
+/// • Skips <see cref="CreatePhysics"/>; no local physics simulation is run.<br/>
+/// • Before each physics step, smoothly moves lightweight proxy bodies toward the networked transforms (<c>MoveProxyBodies</c>).<br/>
+/// • On <see cref="OnUpdate"/>, reads the interpolated proxy-body positions and writes them as bone overrides on the renderer (<c>UpdateProxyTransforms</c>).<br/>
+/// • On <see cref="OnRefresh"/>, teleports the proxy bodies to their initial networked positions so the first frame has no visible pop.
+/// </para>
+/// </remarks>
 [Expose]
 [Title( "Model Physics" )]
 [Category( "Physics" )]

@@ -29,8 +29,16 @@ partial class ModelPhysics
 	[Sync] private NetworkTransforms BodyTransforms { get; set; } = new();
 
 	/// <summary>
-	/// Sync visual transforms to physics transforms.
+	/// Synchronize renderer bone overrides with the current proxy physics body transforms.
 	/// </summary>
+	/// <remarks>
+	/// Called every frame on proxy clients instead of the full authority update path.
+	/// For each <see cref="Body"/> in <see cref="Bodies"/>, the method reads the physics body's
+	/// interpolated world transform (<c>GetLerpedTransform</c>), converts it to model-space, and
+	/// writes it as a bone override on the <see cref="Renderer"/>.  This makes the rendered
+	/// skeleton follow the smooth, interpolated positions received over the network without running
+	/// any local physics simulation.
+	/// </remarks>
 	void UpdateProxyTransforms()
 	{
 		if ( !Renderer.IsValid() )
@@ -93,8 +101,14 @@ partial class ModelPhysics
 	}
 
 	/// <summary>
-	/// Move proxy bodies to networked body transforms.
+	/// Move proxy physics bodies toward the latest networked body transforms.
 	/// </summary>
+	/// <remarks>
+	/// Called in <c>PrePhysicsStep</c> on proxy clients.  Instead of teleporting each body
+	/// instantly, <c>PhysicsBody.Move</c> is used with a slightly extended time delta so the
+	/// motion is spread over two physics frames, smoothing out any network jitter before the
+	/// resulting transforms are consumed by <c>UpdateProxyTransforms</c>.
+	/// </remarks>
 	void MoveProxyBodies()
 	{
 		var transforms = BodyTransforms.Entries;
@@ -119,6 +133,16 @@ partial class ModelPhysics
 		}
 	}
 
+	/// <summary>
+	/// Teleport proxy bodies to their initial networked transforms when the component is first refreshed.
+	/// </summary>
+	/// <remarks>
+	/// <c>OnRefresh</c> is called on a proxy client whenever networked state arrives for the first
+	/// time (or is reset).  By setting each body's <see cref="GameObject"/> to
+	/// <see cref="GameObjectFlags.Absolute"/> and immediately applying the networked transform, the
+	/// proxy skeleton is placed at the correct position from the very first frame, avoiding an
+	/// initial one-frame snap from the world origin.
+	/// </remarks>
 	protected override void OnRefresh()
 	{
 		if ( !IsProxy )
